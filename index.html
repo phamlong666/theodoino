@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Báo Cáo Kiểm Soát Thu Tiền Điện</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body { font-family: "Times New Roman", Times, serif; background-color: #f0f2f5; color: #000; }
+        .export-area { background: white; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: center; font-size: 11pt; }
+        th { background-color: #f3f4f6; }
+        .page-break { page-break-before: always; }
+        .header-title { color: #1e40af; text-transform: uppercase; font-weight: bold; text-align: center; }
+        .btn { transition: all 0.3s; cursor: pointer; padding: 8px 16px; border-radius: 6px; font-weight: bold; }
+        .tab-btn.active { background-color: #1e40af; color: white; }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="max-w-7xl mx-auto bg-white p-6 rounded-lg shadow-lg">
+        <div class="text-center mb-6">
+            <h1 class="header-title text-2xl">BÁO CÁO KIỂM SOÁT THU TIỀN ĐIỆN</h1>
+            <p class="italic text-gray-600 font-bold mt-1">Điện lực Định Hóa</p>
+        </div>
+
+        <div class="flex justify-center gap-4 mb-6 no-print">
+            <button id="btnTabMonth" onclick="switchTab('month')" class="tab-btn btn bg-gray-200 text-gray-700 active">Phân tích theo Tháng</button>
+            <button id="btnTab3Month" onclick="switchTab('3month')" class="tab-btn btn bg-gray-200 text-gray-700">Phân tích 3 tháng gần nhất</button>
+        </div>
+
+        <div class="bg-gray-50 p-4 rounded-lg border mb-6 no-print">
+            <div id="controlMonth" class="flex flex-wrap gap-4 items-center justify-center">
+                <div class="flex flex-col">
+                    <label class="text-xs font-bold text-gray-600 mb-1">Chọn file Excel tháng:</label>
+                    <input type="file" id="uploadMonth" accept=".xlsx, .xls" class="border p-2 rounded bg-white text-sm"/>
+                </div>
+            </div>
+
+            <div id="control3Month" class="hidden flex flex-wrap gap-4 items-center justify-center">
+                <div class="flex flex-col">
+                    <label class="text-xs font-bold text-gray-600 mb-1">Chọn 3 file Excel (Giữ Ctrl để chọn nhiều file):</label>
+                    <input type="file" id="upload3Month" multiple accept=".xlsx, .xls" class="border p-2 rounded bg-white text-sm"/>
+                </div>
+            </div>
+
+            <div id="filterArea" class="hidden grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200">
+                <div class="flex flex-col">
+                    <label class="text-sm font-bold mb-1 text-blue-800">1. Nhập mã Sổ tìm nhanh:</label>
+                    <input type="text" id="inputSo" oninput="handleInputSo()" placeholder="Gõ từ khóa tìm sổ (Ví dụ: DAB...)..." class="border p-2 rounded bg-white text-sm font-bold text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                
+                <div class="flex flex-col">
+                    <label class="text-sm font-bold mb-1 text-blue-800">2. Hoặc Chọn từ danh sách Sổ:</label>
+                    <select id="selectSo" onchange="handleSelectSo()" class="border p-2 rounded bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="ALL">Tất cả các sổ</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col">
+                    <label class="text-sm font-bold mb-1 text-blue-800">3. Số ngày thanh toán:</label>
+                    <select id="selectSongay" onchange="applyFilters()" class="border p-2 rounded bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="ALL">Mặc định theo Quy định loại sổ</option>
+                        <option value="<=5">&lt;= 5 ngày (Ngoài sinh hoạt Trong hạn)</option>
+                        <option value=">=6">&gt;= 6 ngày (Ngoài sinh hoạt Quá hạn)</option>
+                        <option value="<=7">&lt;= 7 ngày (Sinh hoạt Trong hạn)</option>
+                        <option value=">=8">&gt;= 8 ngày (Sinh hoạt Quá hạn)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div id="reportContent" class="export-area">
+            
+            <div id="chartSection" class="hidden mb-10 text-center">
+                <h2 id="chartTitle" class="text-lg font-bold mb-4 uppercase text-blue-800">I. Biểu đồ cơ cấu kiểm soát thời gian thanh toán</h2>
+                <div class="mx-auto" style="height: 320px; width: 320px; max-width: 100%;">
+                    <canvas id="doughnutChart"></canvas>
+                </div>
+                <p class="text-xs text-gray-500 italic mt-2 font-bold text-center">💡 Mẹo: Click trực tiếp vào vùng biểu đồ để lọc nhanh danh sách khách hàng tương ứng bên dưới.</p>
+            </div>
+
+            <div id="dataSection">
+                <div id="tablesContainer">
+                    <p class="text-center text-gray-400 italic">Vui lòng tải file dữ liệu Excel để bắt đầu phân tích...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let currentTab = 'month'; 
+    let rawMonthData = [];    
+    let raw3MonthData = [];   
+    
+    let processedList = [];   
+    let activeFilterList = []; 
+    let doughnutChartObj = null;
+
+    const OUT_OF_LIVING_BOOKS = ['DAB', 'DAC', 'DANB'];
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        if(tab === 'month') {
+            document.getElementById('btnTabMonth').classList.add('active');
+            document.getElementById('controlMonth').classList.remove('hidden');
+            document.getElementById('control3Month').classList.add('hidden');
+            resetData();
+        } else {
+            document.getElementById('btnTab3Month').classList.add('active');
+            document.getElementById('controlMonth').classList.add('hidden');
+            document.getElementById('control3Month').classList.remove('hidden');
+            resetData();
+        }
+    }
+
+    function resetData() {
+        processedList = [];
+        activeFilterList = [];
+        document.getElementById('inputSo').value = '';
+        document.getElementById('selectSo').innerHTML = '<option value="ALL">Tất cả các sổ</option>';
+        document.getElementById('filterArea').classList.add('hidden');
+        document.getElementById('chartSection').classList.add('hidden');
+        document.getElementById('tablesContainer').innerHTML = '<p class="text-center text-gray-400 italic">Vui lòng tải file dữ liệu Excel để bắt đầu phân tích...</p>';
+        if(doughnutChartObj) doughnutChartObj.destroy();
+    }
+
+    function handleInputSo() {
+        document.getElementById('selectSo').value = "ALL";
+        applyFilters();
+    }
+
+    function handleSelectSo() {
+        document.getElementById('inputSo').value = "";
+        applyFilters();
+    }
+
+    // ĐỌC FILE 1 THÁNG
+    document.getElementById('uploadMonth').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+            rawMonthData = json;
+            analyzeMonthData(json);
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // ĐỌC FILE 3 THÁNG
+    document.getElementById('upload3Month').addEventListener('change', async function(e) {
+        const files = e.target.files;
+        if(files.length === 0) return;
+        
+        raw3MonthData = [];
+        let promises = Array.from(files).map(file => {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+                    raw3MonthData.push(...json);
+                    resolve();
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        });
+
+        await Promise.all(promises);
+        analyze3MonthData(raw3MonthData);
+    });
+
+    // Hàm phân tích định dạng ngày giờ phức tạp
+    function parseDateValue(dateInput) {
+        if (!dateInput) return null;
+        if (dateInput instanceof Date) return dateInput;
+        
+        if (!isNaN(dateInput) && Number(dateInput) > 40000) {
+            return new Date((Number(dateInput) - 25569) * 86400 * 1000);
+        }
+        
+        let str = String(dateInput).trim();
+        // Cắt bỏ phần giờ phía sau nếu có (ví dụ "03-06-2026 15:10:04" -> lấy "03-06-2026")
+        let datePart = str.split(' ')[0];
+        let parts = datePart.split(/[-/]/);
+        if(parts.length >= 3) {
+            let day = parseInt(parts[0], 10);
+            let month = parseInt(parts[1], 10) - 1;
+            let year = parseInt(parts[2], 10);
+            if(year < 100) year += 2000;
+            return new Date(year, month, day);
+        }
+        return null;
+    }
+
+    function processRowData(row) {
+        let keys = Object.keys(row);
+        
+        // Cấu hình cột: Mã KH cột C (Index 2), Tên KH cột D (Index 3), Mã sổ cột J (Index 9)
+        let maKH = row['Mã KH'] || row['Mã khách hàng'] || (keys[2] ? row[keys[2]] : 'Ẩn danh');
+        let tenKH = row['Tên KH'] || row['Tên khách hàng'] || (keys[3] ? row[keys[3]] : 'Không rõ');
+        let maSo = row['Sổ'] || row['Mã sổ'] || (keys[9] ? row[keys[9]] : "");
+        
+        // Khai thác Ngày phát hành tại Cột K (Index 10) và Ngày nộp (Ngày thanh toán) tại Cột M (Index 12)
+        let ngayPhatHanhRaw = row['Ngày phát hành'] || row['Ngày PH'] || (keys[10] ? row[keys[10]] : "");
+        let ngayThanhToanRaw = row['Ngày nộp'] || row['Ngày thanh toán'] || row['Ngày TT'] || (keys[12] ? row[keys[12]] : "");
+
+        maSo = String(maSo).toUpperCase().trim();
+        if(!maSo) return null;
+
+        let datePH = parseDateValue(ngayPhatHanhRaw);
+        let dateTT = parseDateValue(ngayThanhToanRaw);
+        
+        // Bỏ qua nếu thiếu dữ liệu ngày
+        if(!datePH || !dateTT) return null; 
+
+        // Công thức mới: Hiệu số ngày giữa cột M và cột K
+        let timeDiff = dateTT.getTime() - datePH.getTime();
+        let soNgay = Math.ceil(timeDiff / (1000 * 3600 * 24));
+        if(soNgay < 0) soNgay = 0; // Tránh số ngày âm nếu dữ liệu bị lỗi
+
+        let loaiSo = "Sinh hoạt";
+        let isOutOfLiving = OUT_OF_LIVING_BOOKS.some(prefix => maSo.startsWith(prefix));
+        if(isOutOfLiving) {
+            loaiSo = "Ngoài sinh hoạt";
+        }
+
+        let trangThai = "Trong hạn";
+        if(loaiSo === "Ngoài sinh hoạt") {
+            if(soNgay >= 6) trangThai = "Quá hạn";
+        } else {
+            if(soNgay >= 8) trangThai = "Quá hạn";
+        }
+
+        return {
+            maKH: String(maKH).trim(),
+            tenKH: String(tenKH).trim(),
+            maSo: maSo,
+            loaiSo: loaiSo,
+            ngayTT: dateTT.toLocaleDateString('vi-VN'),
+            ngayPH: datePH.toLocaleDateString('vi-VN'),
+            soNgay: soNgay,
+            trangThai: trangThai,
+            thangNam: `${dateTT.getMonth() + 1}/${dateTT.getFullYear()}`
+        };
+    }
+
+    function buildSelectSoOptions() {
+        const selectSo = document.getElementById('selectSo');
+        selectSo.innerHTML = '<option value="ALL">Tất cả các sổ</option>';
+        
+        let uniqueSo = new Set();
+        processedList.forEach(item => uniqueSo.add(item.maSo));
+        
+        Array.from(uniqueSo).sort().forEach(so => {
+            let prefix = OUT_OF_LIVING_BOOKS.some(p => so.startsWith(p)) ? "Ngoài SH" : "Sinh hoạt";
+            selectSo.innerHTML += `<option value="${so}">${so} (${prefix})</option>`;
+        });
+    }
+
+    function analyzeMonthData(data) {
+        processedList = [];
+        data.forEach(row => {
+            let item = processRowData(row);
+            if(item) processedList.push(item);
+        });
+
+        buildSelectSoOptions();
+
+        document.getElementById('filterArea').classList.remove('hidden');
+        document.getElementById('chartSection').classList.remove('hidden');
+        document.getElementById('chartTitle').innerText = "I. BIỂU ĐỒ CƠ CẤU KIỂM SOÁT THỜI GIAN THANH TOÁN (THEO THÁNG)";
+
+        applyFilters();
+    }
+
+    function analyze3MonthData(data) {
+        let tempRecords = [];
+        data.forEach(row => {
+            let item = processRowData(row);
+            if(item) tempRecords.push(item);
+        });
+
+        let customerMap = new Map();
+        tempRecords.forEach(rec => {
+            if(!customerMap.has(rec.maKH)) {
+                customerMap.set(rec.maKH, {
+                    maKH: rec.maKH,
+                    tenKH: rec.tenKH,
+                    maSo: rec.maSo,
+                    loaiSo: rec.loaiSo,
+                    records: []
+                });
+            }
+            customerMap.get(rec.maKH).records.push(rec);
+        });
+
+        processedList = [];
+        customerMap.forEach(cust => {
+            let quaHanCount = cust.records.filter(r => r.trangThai === "Quá hạn").length;
+            let bieuHien = "Trong hạn";
+            
+            if(quaHanCount >= 2) {
+                bieuHien = "Quá hạn (Thường xuyên chậm)";
+            } else if(quaHanCount === 1) {
+                bieuHien = "Chậm cục bộ (1 tháng)";
+            }
+
+            let maxDays = Math.max(...cust.records.map(r => r.soNgay));
+
+            processedList.push({
+                maKH: cust.maKH,
+                tenKH: cust.tenKH,
+                maSo: cust.maSo,
+                loaiSo: cust.loaiSo,
+                soNgay: maxDays,
+                trangThai: bieuHien,
+                ngayTT: `Thống kê 3 tháng (Quá hạn: ${quaHanCount} lần)`
+            });
+        });
+
+        buildSelectSoOptions();
+
+        document.getElementById('filterArea').classList.remove('hidden');
+        document.getElementById('chartSection').classList.remove('hidden');
+        document.getElementById('chartTitle').innerText = "I. BIỂU ĐỒ PHÂN TÍCH KHÁCH HÀNG CHẬM THANH TOÁN (3 THÁNG GẦN NHẤT)";
+
+        applyFilters();
+    }
+
+    function applyFilters() {
+        const txtInput = document.getElementById('inputSo').value.toUpperCase().trim();
+        const selSelect = document.getElementById('selectSo').value;
+        const targetNgay = document.getElementById('selectSongay').value;
+
+        activeFilterList = processedList.filter(item => {
+            if (txtInput !== "" && !item.maSo.includes(txtInput)) return false;
+            if (selSelect !== "ALL" && item.maSo !== selSelect) return false;
+
+            if(targetNgay !== "ALL") {
+                if(targetNgay === "<=5" && !(item.soNgay <= 5)) return false;
+                if(targetNgay === ">=6" && !(item.soNgay >= 6)) return false;
+                if(targetNgay === "<=7" && !(item.soNgay <= 7)) return false;
+                if(targetNgay === ">=8" && !(item.soNgay >= 8)) return false;
+            }
+            return true;
+        });
+
+        renderDoughnutChart();
+        renderTableOutput(activeFilterList);
+    }
+
+    function renderDoughnutChart() {
+        const ctx = document.getElementById('doughnutChart').getContext('2d');
+        
+        let categories = [];
+        if(currentTab === 'month') {
+            categories = ["Trong hạn", "Quá hạn"];
+        } else {
+            categories = ["Trong hạn", "Chậm cục bộ (1 tháng)", "Quá hạn (Thường xuyên chậm)"];
+        }
+
+        const counts = categories.map(cat => activeFilterList.filter(item => item.trangThai === cat).length);
+        const totalCustomers = activeFilterList.length;
+
+        if(doughnutChartObj) doughnutChartObj.destroy();
+
+        const colorMap = {
+            "Trong hạn": "#10b981",
+            "Quá hạn": "#ef4444",
+            "Chậm cục bộ (1 tháng)": "#f59e0b",
+            "Quá hạn (Thường xuyên chậm)": "#7f1d1d"
+        };
+
+        let bgColors = categories.map(cat => colorMap[cat] || "#3b82f6");
+
+        doughnutChartObj = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: categories,
+                datasets: [{
+                    data: counts,
+                    backgroundColor: bgColors
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                onClick: (event, elements) => {
+                    if (elements.length > 0) {
+                        const clickedIndex = elements[0].index;
+                        const targetLabel = doughnutChartObj.data.labels[clickedIndex];
+                        let filteredByChart = activeFilterList.filter(item => item.trangThai === targetLabel);
+                        renderTableOutput(filteredByChart, `Danh sách chi tiết nhóm: ${targetLabel}`);
+                    }
+                },
+                plugins: {
+                    datalabels: {
+                        color: '#fff',
+                        font: { weight: 'bold', size: 12 },
+                        formatter: (value) => value > 0 ? value : ''
+                    }
+                }
+            },
+            plugins: [ChartDataLabels, {
+                id: 'centerTextCustomer',
+                beforeDraw: function(chart) {
+                    const width = chart.width, height = chart.height, ctx = chart.ctx;
+                    ctx.restore();
+                    const fontSize = (height / 200).toFixed(2);
+                    ctx.font = "bold " + fontSize + "em 'Times New Roman'";
+                    ctx.textBaseline = "middle";
+                    ctx.fillStyle = "#1e40af";
+                    
+                    const text = totalCustomers + " KH";
+                    const textX = Math.round((width - ctx.measureText(text).width) / 2);
+                    const textY = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2;
+                    
+                    ctx.fillText(text, textX, textY);
+                    ctx.save();
+                }
+            }]
+        });
+    }
+
+    function renderTableOutput(list, customTitle = "") {
+        const container = document.getElementById('tablesContainer');
+        if(list.length === 0) {
+            container.innerHTML = `<p class="text-center text-red-500 italic font-bold mt-4">${customTitle || "II. Danh sách phân tích dữ liệu"}: Không có khách hàng nào khớp điều kiện chọn lọc!</p>`;
+            return;
+        }
+
+        let titleText = customTitle || (currentTab === 'month' ? "II. DANH SÁCH PHÂN LOẠI CHI TIẾT KHÁCH HÀNG" : "II. DANH SÁCH KHÁCH HÀNG THƯỜNG XUYÊN CHẬM THANH TOÁN (2-3 THÁNG)");
+
+        let html = `<h2 class="text-base font-bold mb-3 uppercase text-gray-800 text-left border-l-4 border-blue-700 pl-2">${titleText}</h2>`;
+        html += `
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 5%">STT</th>
+                        <th style="width: 15%">Mã Khách Hàng</th>
+                        <th style="width: 25%">Tên Khách Hàng</th>
+                        <th style="width: 10%">Mã Sổ</th>
+                        <th style="width: 15%">Loại Sổ</th>
+                        <th style="width: 10%">Số Ngày TT</th>
+                        <th style="width: 20%">Trạng Thái / Ghi Chú</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        list.forEach((item, index) => {
+            let statusColor = item.trangThai.includes("Quá hạn") ? "text-red-600 font-bold" : "text-green-600";
+            if(item.trangThai === "Chậm cục bộ (1 tháng)") statusColor = "text-yellow-600 font-bold";
+
+            // Hiển thị thêm chú thích ngày PH ở bảng nếu là chế độ 1 tháng để anh em tiện theo dõi đối chiếu
+            let ghiChuNgay = currentTab === 'month' ? `(PH: ${item.ngayPH} - TT: ${item.ngayTT})` : `(${item.ngayTT})`;
+
+            html += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td class="font-mono text-left pl-2">${item.maKH}</td>
+                    <td class="text-left pl-2 font-bold">${item.tenKH}</td>
+                    <td>${item.maSo}</td>
+                    <td>${item.loaiSo}</td>
+                    <td class="font-bold text-blue-800">${item.soNgay} ngày</td>
+                    <td class="${statusColor}">${item.trangThai} <br><span class="text-xs text-gray-400">${ghiChuNgay}</span></td>
+                </tr>
+            `;
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
+</script>
+</body>
+</html>
